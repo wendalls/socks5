@@ -1,5 +1,5 @@
 # 使用官方 Go 镜像作为基础镜像
-FROM golang:1.22
+FROM golang:1.22 AS builder
 
 # 设置工作目录
 WORKDIR /app
@@ -11,8 +11,11 @@ COPY . .
 RUN go mod tidy
 
 # 编译 Go 程序
-RUN go build -o main .
+RUN go build -tags netgo -o main .
 
+FROM alpine:latest
+WORKDIR /root
+COPY --from=builder /app/main .
 # 容器启动时运行 Go 程序
 CMD ["./main"]
 
