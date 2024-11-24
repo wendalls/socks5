@@ -8,4 +8,4 @@ services:
     container_name: go_app_container
     environment:
       - ENVIRONMENT=production
-    restart: unless-stopped
+    restart: always
