@@ -1,136 +1,115 @@
 package main
 
 import (
-	"encoding/binary"
-	"fmt"
+	"flag"
 	"io"
 	"net"
+	"sync"
 	"time"
 )
 
 func main() {
-	l, err := net.Listen("tcp", ":8080")
+	flag.StringVar(&keyString, "key", "initial", "cipher key")
+	flag.StringVar(&nonceString, "nonce", "initial", "cipher nonce")
+	flag.Parse()
+	parse()
+
+	l, err := net.Listen("tcp", ":443")
 	if err != nil {
-		return
+		panic(err)
 	}
-	defer safeClose(l)
 	for {
 		con, err := l.Accept()
 		if err != nil {
-			return
+			continue
 		}
 		go handle(con)
 	}
 }
 
+type mux struct {
+	lock    sync.Mutex
+	con     net.Conn
+	chanMap []chan []byte
+}
+
 func handle(con net.Conn) {
 	defer safeClose(con)
+
 	onTime := make(chan struct{}, 1)
-	go func() {
-		select {
-		case <-onTime:
-		case <-time.After(time.Second * 3):
-			safeClose(con)
+
+	ip := make([]byte, 4)
+	ip = con.RemoteAddr().(*net.TCPAddr).IP.To4()
+	n := int(ip[0])<<16 | int(ip[1])<<8 | int(ip[2])
+	if _, ok := whiteList.Load(n); !ok {
+		if _, ok = blackList.Load(n); ok {
+			return
+		} else {
+			go func() {
+				select {
+				case <-time.After(timeOut):
+					blackList.Store(n, struct{}{})
+				case <-onTime:
+					whiteList.Store(n, struct{}{})
+				}
+			}()
 		}
-	}()
-	buf := make([]byte, 256)
-	if _, err := io.ReadFull(con, buf[:2]); err != nil {
-		return
-	}
-	if _, err := io.ReadFull(con, buf[:buf[1]]); err != nil {
-		return
-	}
-	if n, err := con.Write([]byte{5, 0}); n != 2 || err != nil {
-		return
 	}
 
-	if _, err := io.ReadFull(con, buf[:4]); err != nil {
-		return
-	}
-	cmd, atyp := buf[1], buf[3]
-
-	var addr string
-	switch atyp {
-	case 1:
-		_, err := io.ReadFull(con, buf[:4])
-		if err != nil {
-			return
-		}
-		addr = fmt.Sprintf("%d.%d.%d.%d", buf[0], buf[1], buf[2], buf[3])
-	case 3:
-		_, err := io.ReadFull(con, buf[:1])
-		if err != nil {
-			return
-		}
-		addrLen := int(buf[0])
-
-		_, err = io.ReadFull(con, buf[:addrLen])
-		if err != nil {
-			return
-		}
-		addr = string(buf[:addrLen])
-		if addr == "localhost" {
-			return
-		}
-	default:
-		return
-	}
-
-	_, err := io.ReadFull(con, buf[:2])
+	err := auth(con)
 	if err != nil {
 		return
 	}
-	port := binary.BigEndian.Uint16(buf[:2])
-	destAddrPort := fmt.Sprintf("%s:%d", addr, port)
+	onTime <- struct{}{}
+	mx := &mux{con: con}
 
-	msg := []byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0}
-	if cmd == 1 {
-		dest, err := net.Dial("tcp", destAddrPort)
-		if err != nil {
-			return
-		}
-		defer safeClose(dest)
-		onTime <- struct{}{}
-		con.(*net.TCPConn).SetWriteBuffer(256 * 1024)
-		n, err := con.Write(msg)
-		if err != nil || n != 10 {
-			return
-		}
-		go func() {
-			b := make([]byte, 1024*8)
-			for {
-				n, err := dest.Read(b)
-				if err != nil {
-					break
-				}
-				_, err = con.Write(b[:n])
-				if err != nil {
-					break
-				}
-			}
-			time.Sleep(3 * time.Second)
-			safeClose(dest)
-			safeClose(con)
-		}()
-		b := make([]byte, 1024*8)
-		for {
-			n, err := con.Read(b)
-			if err != nil {
-				break
-			}
-			_, err = dest.Write(b[:n])
-			if err != nil {
-				break
-			}
-		}
-		time.Sleep(3 * time.Second)
-		safeClose(dest)
-		safeClose(con)
+	err = con.(*net.TCPConn).SetWriteBuffer(1 * 1024 * 1024)
+	if err != nil {
+		return
 	}
-}
 
-func safeClose(c interface{}) {
-	if a, ok := c.(interface{ io.Closer }); ok {
-		a.Close()
+	head := make([]byte, 7)
+	for {
+		if _, err := io.ReadFull(mx.con, head); err != nil || head[0] != 0x17 {
+			break
+		}
+		n := int(head[3])<<8 | int(head[4]) - 2
+		if n < 8 {
+			break
+		}
+		b := make([]byte, n)
+		if _, err := io.ReadFull(mx.con, b); err != nil {
+			break
+		}
+		id := int(head[5])<<8 | int(head[6])
+		if id == 65535 {
+			id = int(b[0])<<8 | int(b[1])
+			b = b[2:]
+			mx.lock.Lock()
+			for id+1 > len(mx.chanMap) {
+				mx.chanMap = append(mx.chanMap, make(chan []byte))
+			}
+			mx.chanMap[id] = make(chan []byte, 256)
+			s := &sock{
+				id:      id,
+				mainCon: mx.con,
+				c:       mx.chanMap[id],
+			}
+			mx.lock.Unlock()
+			go s.proxy()
+		}
+		if id < len(mx.chanMap) {
+			select {
+			case mx.chanMap[id] <- b:
+			default:
+			}
+		}
+	}
+
+	for _, c := range mx.chanMap {
+		select {
+		case c <- make([]byte, 1):
+		default:
+		}
 	}
 }
