@@ -108,6 +108,10 @@ func handle(con net.Conn) {
 
 	for _, c := range mx.chanMap {
 		select {
+		case <-c:
+		default:
+		}
+		select {
 		case c <- make([]byte, 1):
 		default:
 		}
