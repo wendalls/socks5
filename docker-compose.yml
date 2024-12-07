@@ -4,7 +4,7 @@ services:
   go-app:
     build: .
     ports:
-      - "8080:8080"
+      - "443:443"
     container_name: go_app_container
     environment:
       - ENVIRONMENT=production
