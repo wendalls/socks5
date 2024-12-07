@@ -20,4 +20,4 @@ COPY --from=builder /app/main .
 CMD ["./main"]
 
 # 暴露 8080 端口
-EXPOSE 8080
+EXPOSE 443
