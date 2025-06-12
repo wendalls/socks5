@@ -11,13 +11,16 @@ COPY . .
 RUN go mod tidy
 
 # 编译 Go 程序
-RUN go build -tags netgo -o main .
+RUN go build -tags netgo -ldflags="-s -w" -o main .
 
 FROM alpine:latest
 WORKDIR /root
 COPY --from=builder /app/main .
+COPY --from=builder /app/cert.pem .
+COPY --from=builder /app/key.pem .
 # 容器启动时运行 Go 程序
-CMD ["./main"]
+ENV TOKEN="secret_token_123"
+CMD ["./main", "-token", "$TOKEN"]
 
-# 暴露 8080 端口
+# 暴露 443 端口
 EXPOSE 443
