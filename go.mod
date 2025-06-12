@@ -1,3 +1,7 @@
-module go-docker
+module socks5
 
-go 1.22
+go 1.23.0
+
+toolchain go1.23.10
+
+require github.com/gorilla/websocket v1.5.3
