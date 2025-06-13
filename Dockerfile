@@ -20,7 +20,7 @@ COPY --from=builder /app/cert.pem .
 COPY --from=builder /app/key.pem .
 # 容器启动时运行 Go 程序
 ENV TOKEN="secret_token_123"
-CMD ["./main", "-token", "$TOKEN"]
+CMD ./main -token $TOKEN
 
 # 暴露 443 端口
 EXPOSE 443
