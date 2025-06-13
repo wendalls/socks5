@@ -26,13 +26,9 @@ var upgrader = websocket.Upgrader{
 
 func wsHandler(w http.ResponseWriter, r *http.Request) {
 	authHeader := r.Header.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer ") {
+	if authHeader != *token {
 		return
-	}
-	if strings.TrimPrefix(authHeader, "Bearer ") != *token {
-		return
-	}
-	//log.Println("验证成功")
+	})
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
