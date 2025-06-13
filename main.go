@@ -28,7 +28,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != *token {
 		return
-	})
+	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
