@@ -5,8 +5,6 @@ services:
     build: .
     ports:
       - "443:443"
-    container_name: go_app
-    environment:
-      - TOKEN=secret_token_123
+    container_name: socks5
     restart: unless-stopped
 
